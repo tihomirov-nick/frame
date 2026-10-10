@@ -1,0 +1,68 @@
+FRAME
+=====
+
+INSTALLING
+Open Frame right from this window. It moves itself to the Applications
+folder and restarts from there. Without administrator rights, Frame goes
+to the Applications folder inside your home folder. Once it runs, its icon
+appears in the menu bar at the top right of the screen.
+
+You can also install Frame by hand. Drag its icon onto the Applications
+folder next to it and launch Frame from the Applications folder.
+
+IF macOS WON'T OPEN THE APP
+The app isn't notarized by Apple, so on the first launch macOS may show
+a warning ("cannot verify the developer" or "Apple could not verify it is free
+of malware"). You only need to allow it once.
+
+  • On macOS 15 and later, close the warning with "Done", open System
+    Settings, go to Privacy & Security, scroll down, click "Open Anyway"
+    next to Frame and confirm.
+
+  • On macOS 14, right-click Frame in Finder, choose "Open", then click
+    "Open" again in the warning.
+
+  • If that didn't help, drag Frame onto the Applications folder, open
+    Terminal and run:
+        xattr -dr com.apple.quarantine /Applications/Frame.app
+
+RECORDING
+A click on the menu bar icon opens Frame's panel. There you choose what
+to record (the screen, a window or an area) and switch the camera,
+the microphone and the Mac sound on or off. Start Recording or ⌥⇧R starts
+a 3, 2, 1 countdown. While recording, a bar at the bottom of the screen
+pauses, stops or cancels. After you stop, the editor opens: trimming,
+zoom on clicks, a smooth pointer, the background, the frame and the camera
+bubble. Export to MP4 saves the video into the recording's folder.
+Recordings go to Movies/Frame, and everything stays on this Mac.
+
+A right click or a Control-click on the icon opens the menu: recording the
+screen, a window or an area, the recordings folder, settings, checking for
+updates, About and Quit.
+
+PERMISSIONS
+On the first recording macOS asks for permission to record the screen, and
+for the camera and the microphone when they are on. Frame cannot work
+without screen recording. If a permission is off, open Frame's settings
+(⌘,), Permissions: the Allow button opens the right part of System Settings.
+
+LANGUAGE
+Frame works in Russian and English. In Settings (⌘,) choose "Same as
+System", "Русский" or "English". With "Same as System" Frame takes the
+first suitable language from the list in System Settings > General >
+Language & Region. A new language takes effect after a restart, and the
+"Restart" button appears right under the choice.
+
+UPDATES
+Frame looks for a new version on GitHub at launch, every three hours and
+after the Mac wakes up. It downloads a new version by itself, checks its
+signature and installs it when Frame is idle. With "Install updates
+automatically" turned off in Settings, the icon gets a dot instead, and
+Frame's panel shows a card with "Later" and "Update".
+
+OPEN AT LOGIN
+Frame opens at login to install updates on time. To stop it, turn off
+"Open at login" in Settings.
+
+REQUIREMENTS
+macOS 14 or later, a Mac with Apple Silicon or Intel.

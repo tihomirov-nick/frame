@@ -1,0 +1,41 @@
+import AppKit
+
+/// The menu bar icon: the app's glyph as a template image, so macOS tints it for the menu bar and its selection. The
+/// canvas is 22 pt high, as much as the 24 pt menu bar leaves, with the glyph in the middle as big as the system's own
+/// icons: 16 pt tall, or 20 pt wide when its proportions ask for more (Glyph.swift). The canvas is as wide as the glyph
+/// plus a margin; the status item is `variableLength`, as wide as the image plus the menu bar's own margins. The glyph
+/// itself is the app's: `drawGlyph` in AppParts.swift.
+enum MenuBarIcon {
+    static let canvas = NSSize(width: Glyph.menuCanvas(for: Frame.bounds).width, height: Glyph.menuCanvasHeight)
+    /// The glyph's ink in the canvas.
+    static let box = Glyph.menuBox(for: Frame.bounds)
+    /// The thickest line of the glyph in points: Glyph.menuLine in box units, grown with the glyph.
+    static let lineWidth = Glyph.menuLine * Glyph.menuScale(for: Frame.bounds)
+    /// The dot of a new version waiting for the user, in the top right corner, and the gap round it.
+    static let badge = CGRect(x: canvas.width - 6.5, y: 0.5, width: 6, height: 6)
+    static let badgeGap: CGFloat = 1.6
+
+    /// The icon; `badge` adds the dot of an update the user has not answered yet.
+    static func image(badge: Bool = false) -> NSImage {
+        let image = NSImage(size: canvas, flipped: true) { _ in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            ctx.setStrokeColor(.black)
+            ctx.setFillColor(.black)
+            ctx.setLineWidth(lineWidth)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            drawGlyph(in: ctx, box: box)
+            if badge {
+                // A gap round the dot, so it stays apart from the glyph under it.
+                ctx.setBlendMode(.clear)
+                ctx.fillEllipse(in: Self.badge.insetBy(dx: -badgeGap, dy: -badgeGap))
+                ctx.setBlendMode(.normal)
+                ctx.fillEllipse(in: Self.badge)
+            }
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Frame"
+        return image
+    }
+}
