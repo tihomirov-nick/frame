@@ -93,8 +93,13 @@ final class RecordingController: ObservableObject {
             guard phase == .preparing else { return }
             let plan = CapturePlan(target: target, content: content, systemAudio: Preferences.systemAudio)
             try FileManager.default.createDirectory(at: Preferences.folder, withIntermediateDirectories: true)
+            // The session is set up and the camera's layer made on the session's own queue, and the session starts only
+            // after both (see CameraMic): a layer made while the session starts takes the app down.
             let devices = CameraMic()
-            devices.configure(camera: camera, microphone: microphone)
+            await devices.configure(camera: camera, microphone: microphone)
+            let preview = devices.hasCamera ? await devices.makePreview() : nil
+            // The recording may have been called off while the devices were being set up; nothing has started yet.
+            guard phase == .preparing else { return }
             let session = try Session(folder: try RecordingFolder.create(in: Preferences.folder), plan: plan, devices: devices)
             self.session = session
             // The stream can stop on its own (a display unplugged, the permission taken away): what was recorded is kept.
@@ -102,14 +107,14 @@ final class RecordingController: ObservableObject {
                 guard let self else { return }
                 if phase == .recording { stop() } else { fail(error) }
             }
-            devices.start(cameraURL: devices.hasCamera ? session.folder.cameraURL : nil,
-                          micWriter: devices.hasMicrophone ? session.writer : nil, clock: session.clock)
-            if devices.hasCamera {
-                let bubble = CameraBubble(session: devices.session, screen: screen, corner: Preferences.bubbleCorner)
+            if let preview {
+                let bubble = CameraBubble(picture: preview, area: screen.visibleFrame, corner: Preferences.bubbleCorner)
                 bubble.orderFrontRegardless()
                 session.bubble = bubble
                 session.windows.append(bubble)
             }
+            devices.start(cameraURL: devices.hasCamera ? session.folder.cameraURL : nil,
+                          micWriter: devices.hasMicrophone ? session.writer : nil, clock: session.clock)
             try await session.screen.start(plan)
             guard self.session === session else {
                 await session.screen.stop()
@@ -219,7 +224,7 @@ final class RecordingController: ObservableObject {
         let corner = session.bubble?.corner ?? Preferences.bubbleCorner
         session.windows.forEach { $0.orderOut(nil) }
         await session.screen.stop()
-        let camera = session.devices.stop()
+        let camera = await session.devices.stop()
         do {
             try await session.writer.finish(at: duration)
             var hasCamera = false
@@ -261,7 +266,7 @@ final class RecordingController: ObservableObject {
         SoundEffects.play(.delete)
         Task {
             await session.screen.stop()
-            _ = session.devices.stop()?.cancel()
+            _ = await session.devices.stop()?.cancel()
             session.writer.cancel()
             try? FileManager.default.removeItem(at: session.folder.url)
         }
@@ -276,7 +281,7 @@ final class RecordingController: ObservableObject {
             session.windows.forEach { $0.orderOut(nil) }
             Task {
                 await session.screen.stop()
-                _ = session.devices.stop()?.cancel()
+                _ = await session.devices.stop()?.cancel()
                 session.writer.cancel()
                 try? FileManager.default.removeItem(at: session.folder.url)
             }

@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 import FrameCore
 
 /// The camera bubble's measures and the arithmetic with them: where the circle goes, which corner takes it after a
@@ -73,10 +72,6 @@ final class CameraBubble: NSPanel {
         setFrameOrigin(BubbleGeometry.windowOrigin(in: corner, of: area))
     }
 
-    convenience init(session: AVCaptureSession, screen: NSScreen, corner: EditSettings.Corner) {
-        self.init(picture: BubbleView.cameraPicture(of: session), area: screen.visibleFrame, corner: corner)
-    }
-
     /// Into the corner nearest to where it was dropped.
     private func settle() {
         corner = BubbleGeometry.corner(nearest: NSPoint(x: frame.midX, y: frame.midY), in: area)
@@ -101,7 +96,8 @@ final class BubbleView: NSView {
     let discLayer = CALayer()
     /// Turns the picture around its middle, as a mirror does.
     let mirrorLayer = CALayer()
-    /// The camera's layer or a still image, filling the circle to the edge and cut to it on its own as well.
+    /// The camera's layer (made by `CameraMic.makePreview`) or a still image, filling the circle to the edge and cut to it
+    /// on its own as well. The view only hosts it: whatever the layer needs from the capture session is done by then.
     let picture: CALayer
     let ringLayer = CALayer()
     private var grab = NSPoint.zero
@@ -154,27 +150,7 @@ final class BubbleView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
-    /// The camera's picture: the whole frame scaled up until it fills the square of the circle, the longer side cropped.
-    static func cameraPicture(of session: AVCaptureSession) -> AVCaptureVideoPreviewLayer {
-        let preview = AVCaptureVideoPreviewLayer(session: session)
-        preview.videoGravity = .resizeAspectFill
-        return preview
-    }
-
     override var isOpaque: Bool { false }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        switchOffCameraMirroring()
-    }
-
-    /// The mirror layer turns the picture, the same for every camera. A camera that mirrors itself (some do on their
-    /// own, others cannot at all) would turn it back.
-    private func switchOffCameraMirroring() {
-        guard let connection = (picture as? AVCaptureVideoPreviewLayer)?.connection else { return }
-        connection.automaticallyAdjustsVideoMirroring = false
-        if connection.isVideoMirroringSupported { connection.isVideoMirrored = false }
-    }
 
     /// Only the circle takes clicks. `point` is in the superview's coordinates, as AppKit passes it.
     override func hitTest(_ point: NSPoint) -> NSView? {

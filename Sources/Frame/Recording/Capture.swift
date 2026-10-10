@@ -145,47 +145,94 @@ final class ScreenCapture: NSObject, SCStreamOutput, SCStreamDelegate {
 
 /// The camera and the microphone through one AVCaptureSession. The camera goes into camera.mov (its writer is made
 /// with the first frame, when its size is known), the microphone into the first audio track of screen.mov.
-final class CameraMic: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
-    let session = AVCaptureSession()
-    /// Samples arrive here; the session starts and stops on a queue of its own, so stopping never waits for itself.
+///
+/// The session changes on `sessionQueue` and nowhere else, one thing after another in the order asked for: its set-up,
+/// the camera's preview layer (a layer adds itself to the session as it is made), starting and stopping. AVFoundation
+/// does not guard these against each other, and a layer made on the main thread while `startRunning` is under way ends
+/// the app with an NSGenericException. So the session stays private, and the methods that touch it hand the work to the
+/// queue and return only when it is done: `await` leaves the main thread free, because `startRunning` can take a second.
+/// Every other variable belongs to one queue as well (`sessionQueue` or `queue`), which is what lets the class be shared
+/// between threads.
+final class CameraMic: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate,
+                       @unchecked Sendable {
+    private let session = AVCaptureSession()
+    /// Samples arrive here.
     private let queue = DispatchQueue(label: "Frame.cameraMic", qos: .userInteractive)
-    private let sessionQueue = DispatchQueue(label: "Frame.captureSession", qos: .userInitiated)
+    /// Where the session changes (not private: the tests keep it busy to see that nothing waits for it).
+    let sessionQueue = DispatchQueue(label: "Frame.captureSession", qos: .userInitiated)
     private let videoOutput = AVCaptureVideoDataOutput()
     private let audioOutput = AVCaptureAudioDataOutput()
+    /// Whether `start` runs a session that has no device in it. A recording never does; the tests do, to go through the
+    /// calls with a real session and no camera.
+    private let runsWithoutDevices: Bool
+    /// Set by `configure`, read after it.
     private(set) var hasCamera = false
     private(set) var hasMicrophone = false
+    /// A camera is used once: after `stop` it never starts again. Read and written on `sessionQueue` only.
+    private var stopped = false
     private var cameraWriter: MovieWriter?
     private var cameraURL: URL?
     private var clock: RecordingClock?
     private var micWriter: MovieWriter?
 
-    func configure(camera: Bool, microphone: Bool) {
-        session.beginConfiguration()
-        if camera, let device = AVCaptureDevice.default(for: .video), let input = try? AVCaptureDeviceInput(device: device),
-           session.canAddInput(input) {
-            session.addInput(input)
-            if session.canSetSessionPreset(.hd1280x720) { session.sessionPreset = .hd1280x720 }
-            videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-            videoOutput.alwaysDiscardsLateVideoFrames = true
-            videoOutput.setSampleBufferDelegate(self, queue: queue)
-            if session.canAddOutput(videoOutput) {
-                session.addOutput(videoOutput)
-                hasCamera = true
-            }
-        }
-        if microphone, let device = AVCaptureDevice.default(for: .audio), let input = try? AVCaptureDeviceInput(device: device),
-           session.canAddInput(input) {
-            session.addInput(input)
-            audioOutput.setSampleBufferDelegate(self, queue: queue)
-            if session.canAddOutput(audioOutput) {
-                session.addOutput(audioOutput)
-                hasMicrophone = true
-            }
-        }
-        session.commitConfiguration()
+    init(runsWithoutDevices: Bool = false) {
+        self.runsWithoutDevices = runsWithoutDevices
+        super.init()
     }
 
-    /// Starts the devices; samples go to the writers once `clock` has started.
+    /// Puts the devices into the session; `hasCamera` and `hasMicrophone` say which of them got in.
+    func configure(camera: Bool, microphone: Bool) async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            sessionQueue.async { [self] in
+                session.beginConfiguration()
+                if camera, let device = AVCaptureDevice.default(for: .video), let input = try? AVCaptureDeviceInput(device: device),
+                   session.canAddInput(input) {
+                    session.addInput(input)
+                    if session.canSetSessionPreset(.hd1280x720) { session.sessionPreset = .hd1280x720 }
+                    videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+                    videoOutput.alwaysDiscardsLateVideoFrames = true
+                    videoOutput.setSampleBufferDelegate(self, queue: queue)
+                    if session.canAddOutput(videoOutput) {
+                        session.addOutput(videoOutput)
+                        hasCamera = true
+                    }
+                }
+                if microphone, let device = AVCaptureDevice.default(for: .audio), let input = try? AVCaptureDeviceInput(device: device),
+                   session.canAddInput(input) {
+                    session.addInput(input)
+                    audioOutput.setSampleBufferDelegate(self, queue: queue)
+                    if session.canAddOutput(audioOutput) {
+                        session.addOutput(audioOutput)
+                        hasMicrophone = true
+                    }
+                }
+                session.commitConfiguration()
+                done.resume()
+            }
+        }
+    }
+
+    /// The camera's picture: the whole frame scaled up until it fills the square of the circle, the longer side cropped.
+    /// The layer is made here, on the session queue, because making it adds it to the session; the bubble puts it on
+    /// screen from the main thread. Ask for it before `start`.
+    func makePreview() async -> AVCaptureVideoPreviewLayer {
+        await withCheckedContinuation { (done: CheckedContinuation<AVCaptureVideoPreviewLayer, Never>) in
+            sessionQueue.async { [self] in
+                let preview = AVCaptureVideoPreviewLayer(session: session)
+                preview.videoGravity = .resizeAspectFill
+                // The bubble turns the picture round itself, the same for every camera. A camera that mirrors itself (some
+                // do on their own, others cannot at all) would turn it back.
+                if let connection = preview.connection {
+                    connection.automaticallyAdjustsVideoMirroring = false
+                    if connection.isVideoMirroringSupported { connection.isVideoMirrored = false }
+                }
+                done.resume(returning: preview)
+            }
+        }
+    }
+
+    /// Starts the devices; samples go to the writers once `clock` has started. It returns at once, the session starts
+    /// behind whatever is already on the queue.
     func start(cameraURL: URL?, micWriter: MovieWriter?, clock: RecordingClock) {
         queue.async { [self] in
             self.cameraURL = cameraURL
@@ -193,14 +240,22 @@ final class CameraMic: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, A
             self.clock = clock
         }
         sessionQueue.async { [self] in
-            if hasCamera || hasMicrophone { session.startRunning() }
+            guard !stopped, hasCamera || hasMicrophone || runsWithoutDevices else { return }
+            session.startRunning()
         }
     }
 
-    /// Stops the devices and hands over the camera's writer, if a frame ever came.
-    func stop() -> MovieWriter? {
-        sessionQueue.sync { session.stopRunning() }
-        return queue.sync { cameraWriter }
+    /// Stops the devices and hands over the camera's writer, if a frame ever came. The stop waits its turn on the queue,
+    /// so it comes after a start asked for just before it.
+    func stop() async -> MovieWriter? {
+        await withCheckedContinuation { (done: CheckedContinuation<MovieWriter?, Never>) in
+            sessionQueue.async { [self] in
+                stopped = true
+                session.stopRunning()
+                // Samples still on their way to the writers are handled before the camera's writer is read.
+                queue.async { done.resume(returning: self.cameraWriter) }
+            }
+        }
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sample: CMSampleBuffer, from connection: AVCaptureConnection) {

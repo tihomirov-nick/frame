@@ -73,8 +73,8 @@ final class BubbleTests: XCTestCase {
         }
     }
 
-    func testTheCameraLayerFillsAndIsCutToTheCircleToo() {
-        let preview = BubbleView.cameraPicture(of: AVCaptureSession())
+    func testTheCameraLayerFillsAndIsCutToTheCircleToo() async {
+        let preview = await CameraMic().makePreview()
         XCTAssertEqual(preview.videoGravity, .resizeAspectFill)
         let view = BubbleView(picture: preview)
         XCTAssertTrue(preview.superlayer === view.mirrorLayer)
@@ -82,13 +82,13 @@ final class BubbleTests: XCTestCase {
         XCTAssertEqual(preview.cornerRadius, r)
         XCTAssertTrue(preview.masksToBounds)
         XCTAssertEqual(preview.bounds.size, CGSize(width: d, height: d))
-        // The mirror is the layer's turn about its middle; the camera's own mirroring is left off in `viewDidMoveToWindow`.
+        // The mirror is the layer's turn about its middle; the camera's own mirroring is left off in `CameraMic.makePreview`.
         let turn = view.mirrorLayer.affineTransform()
         XCTAssertEqual(turn.a, -1)
         XCTAssertEqual(turn.d, 1)
         XCTAssertEqual(view.mirrorLayer.position, CGPoint(x: r, y: r))
         // In a window (never shown) the camera's layer has no connection yet, as the session has no input: nothing breaks.
-        let bubble = CameraBubble(picture: BubbleView.cameraPicture(of: AVCaptureSession()),
+        let bubble = CameraBubble(picture: await CameraMic().makePreview(),
                                   area: NSRect(x: 0, y: 0, width: 800, height: 600), corner: .bottomLeft)
         XCTAssertTrue(bubble.contentView is BubbleView)
     }
