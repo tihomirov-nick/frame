@@ -122,4 +122,51 @@ final class EngineTests: XCTestCase {
         }
         checkFrames(before: try draw(0.3), zoomed: try draw(1.6), renderer: renderer, times: (0.3, 1.6), tolerance: 10)
     }
+
+    /// The camera in the finished video, whichever corner the bubble was in on screen: a circle and not its square,
+    /// mirrored as the bubble shows it, in that corner of the frame.
+    func testTheCameraInTheVideoIsACircleMirroredInTheCornerItWasIn() throws {
+        let spec = SyntheticRecording.Spec()
+        let canvas = CGSize(width: 960, height: 540)
+        let red = CIImage(color: CIColor(red: 0.9, green: 0.1, blue: 0.1)).cropped(to: CGRect(x: 0, y: 0, width: 320, height: 480))
+        let blue = CIImage(color: CIColor(red: 0.1, green: 0.2, blue: 0.9)).cropped(to: CGRect(x: 320, y: 0, width: 320, height: 480))
+        let camera = blue.composited(over: red)
+        let context = CIContext()
+        func draw(_ corner: EditSettings.Corner, camera: CIImage?) throws -> (pixels: Pixels, bubble: CGRect) {
+            var settings = EditSettings()
+            settings.cameraCorner = corner
+            let renderer = FrameRenderer(canvas: canvas, source: spec.size, settings: settings, cursor: SyntheticRecording.cursor(spec))
+            let image = renderer.render(screen: nil, camera: camera, at: 0.3, context: context)
+            let cg = try XCTUnwrap(context.createCGImage(image, from: CGRect(origin: .zero, size: canvas)))
+            return (Pixels(cg), renderer.bubbleRect)
+        }
+        func same(_ a: RGB8, _ b: RGB8) -> Bool { abs(a.r - b.r) <= 3 && abs(a.g - b.g) <= 3 && abs(a.b - b.b) <= 3 }
+
+        for corner in EditSettings.Corner.allCases {
+            let (with, bubble) = try draw(corner, camera: camera)
+            let without = try draw(corner, camera: nil).pixels
+            // In its corner (Core Image counts from the lower left).
+            let left = corner == .topLeft || corner == .bottomLeft, bottom = corner == .bottomLeft || corner == .bottomRight
+            XCTAssertEqual(bubble.midX < canvas.width / 2, left, "\(corner)")
+            XCTAssertEqual(bubble.midY < canvas.height / 2, bottom, "\(corner)")
+            // Mirrored: the right half of the camera's picture is blue, so the left of the circle is.
+            let l = with.rgb(CGPoint(x: bubble.midX - bubble.width * 0.3, y: bubble.midY))
+            let r = with.rgb(CGPoint(x: bubble.midX + bubble.width * 0.3, y: bubble.midY))
+            XCTAssertTrue(l.near(0.1, 0.2, 0.9, 12), "\(corner): left of the bubble \(l)")
+            XCTAssertTrue(r.near(0.9, 0.1, 0.1, 12), "\(corner): right of the bubble \(r)")
+            // A circle: the four corners of its square are the frame as it is without the camera, while the middle
+            // of each side, a few pixels in, is the camera.
+            let inset: CGFloat = 4
+            let corners = [CGPoint(x: bubble.minX + inset, y: bubble.minY + inset), CGPoint(x: bubble.maxX - inset, y: bubble.minY + inset),
+                           CGPoint(x: bubble.minX + inset, y: bubble.maxY - inset), CGPoint(x: bubble.maxX - inset, y: bubble.maxY - inset)]
+            for p in corners {
+                XCTAssertTrue(same(with.rgb(p), without.rgb(p)), "\(corner): the square's corner \(p) is \(with.rgb(p)), not \(without.rgb(p))")
+            }
+            let sides = [CGPoint(x: bubble.midX, y: bubble.minY + inset), CGPoint(x: bubble.midX, y: bubble.maxY - inset),
+                         CGPoint(x: bubble.minX + inset, y: bubble.midY), CGPoint(x: bubble.maxX - inset, y: bubble.midY)]
+            for p in sides {
+                XCTAssertFalse(same(with.rgb(p), without.rgb(p)), "\(corner): the circle's edge at \(p) shows no camera")
+            }
+        }
+    }
 }

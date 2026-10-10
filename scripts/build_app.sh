@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds build/Frame.app (universal: Apple Silicon + Intel).
-#   VERSION=1.0.0 ./scripts/build_app.sh
+#   VERSION=1.0.1 ./scripts/build_app.sh
 #   ARCHS="arm64" ./scripts/build_app.sh          faster, for this Mac only
 #   SIGN_IDENTITY=- ./scripts/build_app.sh        ad-hoc signature
 #   OUT_DIR=build/release ./scripts/build_app.sh  another place for the bundle (make_dmg.sh uses it)
@@ -15,7 +15,7 @@ cd "$ROOT"
 
 APP_NAME="Frame"
 BUNDLE_ID="${BUNDLE_ID:-com.frame.app}"
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-1.0.1}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(date +%Y%m%d%H%M)}"
 ARCHS="${ARCHS:-arm64 x86_64}"
 CERT_SHA1="AF82036140843A7D76497EA8E4CD23403C8AEDC2"
